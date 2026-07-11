@@ -147,7 +147,7 @@ sudo docker stack deploy -c jenkins/docker-compose.yaml jenkins
 
 ### 4.8 Criar o job de Pipeline
 
-Deixei um único job do tipo *Multibranch Pipeline* apontando para este repositório. Ele descobre as branches sozinho e usa o critério de marcador `**/Jenkinsfile*`, que encontra o `calculator/Jenkinsfile` automaticamente, sem precisar apontar o *Script Path* na mão. O mesmo job cobre a CI e a geração de artefato; quem decide o comportamento é o gatilho/parâmetro (explico na [seção 5](#5-pipelines)).
+Deixei um único job do tipo *Multibranch Pipeline* apontando para este repositório. Ele descobre as branches sozinho e usa o critério de marcador `**/Jenkinsfile*`, que encontra o `calculator/Jenkinsfile` automaticamente, sem precisar apontar o *Script Path* na mão. Habilitei também a trait **"Discover tags"** na fonte, para que o push de uma tag `v*` dispare o build de release (ver [seção 5.3](#53-github-release)). O mesmo job cobre a CI e a geração de artefato; quem decide o comportamento é o gatilho/parâmetro (explico na [seção 5](#5-pipelines)).
 
 ---
 
@@ -172,7 +172,7 @@ Optei por deixar **um único** `calculator/Jenkinsfile` para simplificar: um só
 | `Unit tests` | só CI completa | `make unittest` (GoogleTest) |
 | `Build artifact` | sempre | `make` → `calculator/bin/calculator` (+ `BUILDINFO.txt`) |
 | `Archive artifact` | sempre | `archiveArtifacts` (store nativo do Jenkins) |
-| `GitHub Release` | manual (`RELEASE`) ou merge na `main` | cria a Release no GitHub e anexa os binários (`calculator/ci/github-release.sh`) |
+| `GitHub Release` | push de **tag** (`v*`) ou `RELEASE=true` manual | cria a Release no GitHub e anexa os binários (`calculator/ci/github-release.sh`) |
 
 No Blue Ocean dá para ver bem essa separação de etapas:
 
@@ -202,10 +202,10 @@ Qualquer falha é tratada como **crítica**: a saída não-zero derruba o build 
 
 Além de arquivar o binário no *store* do Jenkins, o pipeline publica uma **Release no GitHub** com os artefatos anexados. A etapa `GitHub Release` roda no fim, depois do `Archive artifact`, e só entra quando `RELEASE_MODE = true`. A etapa `Detect mode` liga esse modo em dois casos:
 
-- **Ação manual:** parâmetro `RELEASE = true` num *Build with Parameters* (opcionalmente com `RELEASE_VERSION` para nomear a tag).
-- **Merge na `main`:** todo build normal de CI (não-diário, não só-artefato). Na prática, cada PR mergeado na `main` gera uma release.
+- **Push de tag (`v*`):** o gatilho principal. Uma tag semântica empurrada (`git tag v1.2.0 && git push --tags`) dispara um build de tag, e a release usa o próprio `TAG_NAME` como versão. Builds normais de push/poll na `main` **não** geram release — isso evita o *spam* de tags `build-N` a cada commit.
+- **Ação manual:** parâmetro `RELEASE = true` num *Build with Parameters* na `main` (escape hatch para releases ad-hoc), opcionalmente com `RELEASE_VERSION` para nomear a tag; sem ele, cai no automático `build-<BUILD_NUMBER>`.
 
-A versão/tag vem do parâmetro `RELEASE_VERSION` quando informado; caso contrário, cai no automático `build-<BUILD_NUMBER>`.
+> Requer a trait **"Discover tags"** na fonte do *Multibranch Pipeline* (Configure → Branch Sources), senão o Jenkins não constrói builds de tag.
 
 Optei por **não** usar o `gh` CLI: o `calculator/ci/github-release.sh` fala direto com a **API REST do GitHub** via `curl` e faz o *parse* das respostas com `jq` (ambos vêm na imagem do agente). O script cria a release apontando a tag para o `GIT_COMMIT` do build, reaproveita a release caso a tag já exista (idempotente em *re-runs*) e sobe `calculator/bin/calculator` + `BUILDINFO.txt` como *assets*.
 
