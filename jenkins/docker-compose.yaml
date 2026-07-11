@@ -2,15 +2,17 @@ services:
   jenkins:
     image: jenkins/jenkins:lts-jdk21
     environment:
-      # Cap JVM heap explicitly; without this the JVM sizes itself off
-      # total host RAM, not the container's cgroup limit, and can overshoot.
-      JAVA_OPTS: "-Xmx384m -Xms256m -XX:MaxMetaspaceSize=128m"
+      # Heap capped conservatively given the 909MB host; SerialGC has less
+      # overhead than default G1GC for small heaps. Total JVM process memory
+      # (heap + metaspace + thread stacks + native buffers) runs well above
+      # -Xmx, so the cgroup limit below leaves headroom above the heap cap.
+      JAVA_OPTS: "-Xmx192m -Xms128m -XX:MaxMetaspaceSize=256m -XX:+UseSerialGC"
     deploy:
       resources:
         limits:
-          memory: 480M
+          memory: 500M
         reservations:
-          memory: 300M
+          memory: 350M
       replicas: 1
       restart_policy:
         condition: on-failure
@@ -25,15 +27,18 @@ services:
 
   agent1:
     image: jenkins-agent:docker
+    build:
+      context: .
+      dockerfile: agent.Dockerfile
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'export JENKINS_SECRET="$$(cat /run/secrets/agent1_secret)"; exec jenkins-agent'
     environment:
       JENKINS_URL: "http://jenkins:8080"
       JENKINS_AGENT_NAME: "agent1"
       JENKINS_AGENT_WORKDIR: "/home/jenkins/agent"
       JAVA_OPTS: "-Xmx128m -Xms64m"
-    entrypoint:
-      - /bin/sh
-      - -c
-      - 'export JENKINS_SECRET="$$(cat /run/secrets/agent1_secret)"; exec jenkins-agent'
     secrets:
       - agent1_secret
     volumes:
